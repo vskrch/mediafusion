@@ -2,6 +2,7 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /app
 COPY backend/ backend/
+COPY resources/ resources/
 ENV SQLX_OFFLINE=true
 RUN cd backend && cargo build --release --bin mediafusion-api --bin mediafusion-worker
 
