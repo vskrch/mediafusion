@@ -33,6 +33,14 @@ pub enum MigrateError {
 /// `pg_trgm`.  Must be called before `AppState::build()`.
 pub async fn preflight(postgres_uri: &str) -> Result<(), MigrateError> {
     let uri = normalize_uri(postgres_uri);
+
+    // Managed Postgres (Heroku, RDS, etc.) provisions the target database and
+    // often denies access to the `postgres` system database.
+    if database_reachable(&uri).await {
+        info!("target database reachable — skipping local database creation");
+        return Ok(());
+    }
+
     let system_uri = system_db_uri(&uri)?;
     let db_name = extract_db_name(&uri)?;
 
@@ -249,6 +257,19 @@ fn extract_db_name(uri: &str) -> Result<String, MigrateError> {
         Ok("mediafusion".to_string())
     } else {
         Ok(name)
+    }
+}
+
+/// Returns true when the target database URI is reachable. Managed Postgres
+/// providers (Heroku, RDS, etc.) provision the database up front and often
+/// deny access to the `postgres` system database.
+async fn database_reachable(uri: &str) -> bool {
+    match PgConnection::connect(uri).await {
+        Ok(conn) => {
+            conn.close().await.ok();
+            true
+        }
+        Err(_) => false,
     }
 }
 

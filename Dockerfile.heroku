@@ -1,0 +1,18 @@
+# Heroku deploy — rebuild Rust binaries with repo-root build context.
+FROM rust:1-bookworm AS builder
+WORKDIR /app
+COPY backend/ backend/
+ENV SQLX_OFFLINE=true
+RUN cd backend && cargo build --release --bin mediafusion-api --bin mediafusion-worker
+
+ARG MEDIAFUSION_VERSION=6.0.0-beta.22
+FROM mhdzumair/mediafusion:${MEDIAFUSION_VERSION}
+
+USER root
+COPY --from=builder /app/backend/target/release/mediafusion-api /usr/local/bin/mediafusion-api
+COPY --from=builder /app/backend/target/release/mediafusion-worker /usr/local/bin/mediafusion-worker
+COPY deployment/heroku/start.sh /start.sh
+RUN chmod +x /start.sh
+USER mediafusion
+
+CMD ["/start.sh"]
