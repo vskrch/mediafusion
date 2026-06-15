@@ -1,0 +1,4 @@
+build:
+  docker:
+    web:
+      dockerfile: deployment/heroku/Dockerfile

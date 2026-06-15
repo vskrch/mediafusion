@@ -47,6 +47,7 @@ mediafusion.local*
 kodi/
 !kodi/*.py
 !deployment/startup.sh
+!deployment/heroku/start.sh
 
 # Environments
 .env

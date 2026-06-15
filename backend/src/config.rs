@@ -378,6 +378,7 @@ impl AppConfig {
             secret_key: key,
             secret_key_raw: raw,
             postgres_uri: env("POSTGRES_URI")
+                .or_else(|_| env("DATABASE_URL"))
                 .unwrap_or_else(|_| {
                     "postgresql://mediafusion:mediafusion@127.0.0.1:5432/mediafusion".into()
                 })
@@ -420,6 +421,7 @@ impl AppConfig {
             redis_url: env("REDIS_URL")
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".into()),
             port: env("STREAM_RS_PORT")
+                .or_else(|_| env("PORT"))
                 .unwrap_or_else(|_| "8000".into())
                 .parse()
                 .unwrap_or(8000),
