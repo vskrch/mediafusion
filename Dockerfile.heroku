@@ -6,8 +6,7 @@ COPY resources/ resources/
 ENV SQLX_OFFLINE=true
 RUN cd backend && cargo build --release --bin mediafusion-api --bin mediafusion-worker
 
-ARG MEDIAFUSION_VERSION=6.0.0-beta.22
-FROM mhdzumair/mediafusion:${MEDIAFUSION_VERSION}
+FROM mhdzumair/mediafusion:6.0.0-beta.22
 
 USER root
 COPY --from=builder /app/backend/target/release/mediafusion-api /usr/local/bin/mediafusion-api
