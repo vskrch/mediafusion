@@ -3,20 +3,20 @@ FROM mhdzumair/mediafusion:6.0.0-beta.22
 
 USER root
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends postgresql postgresql-client netcat-openbsd && \
+    apt-get install -y --no-install-recommends postgresql postgresql-client netcat-openbsd locales && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /data/postgres /tmp/pg-run && \
-    chown postgres:postgres /data/postgres /tmp/pg-run /usr/local/bin/mediafusion-api /usr/local/bin/mediafusion-worker && \
+    mkdir -p /data/postgres && \
     for b in initdb pg_ctl postgres psql pg_isready; do \
       ln -sf "/usr/lib/postgresql/17/bin/$b" "/usr/local/bin/$b"; \
-    done
+    done && \
+    chmod a+rx /usr/local/bin/mediafusion-api /usr/local/bin/mediafusion-worker
 
 ENV PGDATA=/data/postgres
 ENV PATH="/usr/lib/postgresql/17/bin:/usr/local/bin:${PATH}"
+ENV LANG=C.UTF-8
 
 COPY deployment/heroku/start.sh /start.sh
-RUN chmod +x /start.sh && chown postgres:postgres /start.sh
+RUN chmod a+rx /start.sh
 
-USER postgres
 CMD ["/start.sh"]

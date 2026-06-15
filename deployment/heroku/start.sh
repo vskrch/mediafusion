@@ -1,5 +1,5 @@
 #!/bin/sh
-# All-in-one Heroku entrypoint — runs as USER postgres (no su; Heroku blocks /etc/passwd writes).
+# All-in-one Heroku entrypoint: embedded PostgreSQL + MediaFusion API + worker.
 
 set -eu
 
@@ -22,6 +22,7 @@ if [ -z "${REDIS_URL:-}" ] && [ -n "${REDISCLOUD_URL:-}" ]; then
   export REDIS_URL="$REDISCLOUD_URL"
 fi
 
+# Socket dir inside PGDATA — Heroku ephemeral /tmp is empty at runtime.
 PG_OPTS="-c shared_buffers=32MB \
   -c max_connections=30 \
   -c effective_cache_size=96MB \
@@ -30,7 +31,7 @@ PG_OPTS="-c shared_buffers=32MB \
   -c wal_buffers=4MB \
   -c checkpoint_completion_target=0.9 \
   -c random_page_cost=1.1 \
-  -c unix_socket_directories=/tmp/pg-run \
+  -c unix_socket_directories=${PGDATA} \
   -c listen_addresses=127.0.0.1"
 
 log() { echo "[start.sh] $*"; }
@@ -56,16 +57,22 @@ release_port_holder() {
 }
 
 init_postgres() {
+  mkdir -p "$PGDATA"
+
   if [ -s "$PGDATA/PG_VERSION" ]; then
     log "reusing existing PostgreSQL data"
     return 0
   fi
 
   log "initializing PostgreSQL data directory"
-  initdb -D "$PGDATA" --auth-host=trust --auth-local=trust
+  initdb -D "$PGDATA" \
+    --auth-host=trust \
+    --auth-local=trust \
+    --encoding=UTF8 \
+    --locale=C.UTF-8
 
   pg_ctl -D "$PGDATA" -o "$PG_OPTS" -w start
-  psql -v ON_ERROR_STOP=1 postgres <<'SQL'
+  psql -h 127.0.0.1 -v ON_ERROR_STOP=1 postgres <<'SQL'
 CREATE USER mediafusion WITH PASSWORD 'mediafusion' SUPERUSER;
 CREATE DATABASE mediafusion OWNER mediafusion;
 SQL
@@ -113,5 +120,5 @@ fi
 release_port_holder
 supervise worker /usr/local/bin/mediafusion-worker
 
-log "starting mediafusion-api on port $STREAM_RS_PORT (migrations may take a few minutes on first boot)"
+log "starting mediafusion-api on port $STREAM_RS_PORT (first boot migrations can take several minutes)"
 exec /usr/local/bin/mediafusion-api
