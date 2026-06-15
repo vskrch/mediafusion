@@ -118,7 +118,30 @@ if ! wait_for_postgres; then
   exit 1
 fi
 release_port_holder
-supervise worker /usr/local/bin/mediafusion-worker
 
-log "starting mediafusion-api on port $STREAM_RS_PORT (first boot migrations can take several minutes)"
-exec /usr/local/bin/mediafusion-api
+/usr/local/bin/mediafusion-api &
+API_PID=$!
+
+log "waiting for mediafusion-api to finish migrations and bind port $STREAM_RS_PORT"
+i=0
+while [ "$i" -lt 600 ]; do
+  if curl -sf "http://127.0.0.1:${STREAM_RS_PORT}/health" >/dev/null 2>&1; then
+    log "mediafusion-api is healthy"
+    break
+  fi
+  if ! kill -0 "$API_PID" 2>/dev/null; then
+    log "ERROR: mediafusion-api exited during startup"
+    exit 1
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+
+if [ "$i" -ge 600 ]; then
+  log "ERROR: mediafusion-api did not become healthy in time"
+  kill "$API_PID" 2>/dev/null || true
+  exit 1
+fi
+
+supervise worker /usr/local/bin/mediafusion-worker
+wait "$API_PID"
