@@ -3,7 +3,7 @@ ARG MEDIAFUSION_VERSION=6.0.0-beta.22
 FROM mhdzumair/mediafusion:${MEDIAFUSION_VERSION}
 
 USER root
-COPY deployment/heroku/start.sh /start.sh
+COPY start.sh /start.sh
 RUN chmod +x /start.sh
 USER mediafusion
 
