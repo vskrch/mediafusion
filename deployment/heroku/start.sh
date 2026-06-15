@@ -100,6 +100,7 @@ run_api() {
   exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-api'
 }
 
+ensure_postgres_user
 init_postgres
 supervise postgres run_postgres
 wait_for_postgres
