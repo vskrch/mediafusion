@@ -6,10 +6,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends postgresql postgresql-client netcat-openbsd && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /data/postgres && \
-    chown postgres:postgres /data/postgres /usr/local/bin/mediafusion-api /usr/local/bin/mediafusion-worker
+    mkdir -p /data/postgres /tmp/pg-run && \
+    chown postgres:postgres /data/postgres /tmp/pg-run /usr/local/bin/mediafusion-api /usr/local/bin/mediafusion-worker && \
+    for b in initdb pg_ctl postgres psql pg_isready; do \
+      ln -sf "/usr/lib/postgresql/17/bin/$b" "/usr/local/bin/$b"; \
+    done
 
 ENV PGDATA=/data/postgres
+ENV PATH="/usr/lib/postgresql/17/bin:/usr/local/bin:${PATH}"
 
 COPY deployment/heroku/start.sh /start.sh
 RUN chmod +x /start.sh && chown postgres:postgres /start.sh

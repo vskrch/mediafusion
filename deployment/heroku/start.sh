@@ -1,7 +1,7 @@
 #!/bin/sh
 # All-in-one Heroku entrypoint — runs as USER postgres (no su; Heroku blocks /etc/passwd writes).
 
-set -u
+set -eu
 
 PGDATA="${PGDATA:-/data/postgres}"
 PORT_HOLDER_PID=""
@@ -29,7 +29,9 @@ PG_OPTS="-c shared_buffers=32MB \
   -c maintenance_work_mem=16MB \
   -c wal_buffers=4MB \
   -c checkpoint_completion_target=0.9 \
-  -c random_page_cost=1.1"
+  -c random_page_cost=1.1 \
+  -c unix_socket_directories=/tmp/pg-run \
+  -c listen_addresses=127.0.0.1"
 
 log() { echo "[start.sh] $*"; }
 
@@ -55,13 +57,14 @@ release_port_holder() {
 
 init_postgres() {
   if [ -s "$PGDATA/PG_VERSION" ]; then
+    log "reusing existing PostgreSQL data"
     return 0
   fi
 
   log "initializing PostgreSQL data directory"
   initdb -D "$PGDATA" --auth-host=trust --auth-local=trust
 
-  pg_ctl -D "$PGDATA" -w start
+  pg_ctl -D "$PGDATA" -o "$PG_OPTS" -w start
   psql -v ON_ERROR_STOP=1 postgres <<'SQL'
 CREATE USER mediafusion WITH PASSWORD 'mediafusion' SUPERUSER;
 CREATE DATABASE mediafusion OWNER mediafusion;
@@ -72,8 +75,8 @@ SQL
 
 wait_for_postgres() {
   i=0
-  while [ "$i" -lt 120 ]; do
-    if pg_isready -q -d mediafusion; then
+  while [ "$i" -lt 180 ]; do
+    if pg_isready -h 127.0.0.1 -p 5432 -d mediafusion -q; then
       log "PostgreSQL is ready"
       return 0
     fi
@@ -90,8 +93,7 @@ supervise() {
   (
     while true; do
       log "$name starting"
-      "$@"
-      log "$name exited — restarting in 2s"
+      "$@" || log "$name exited — restarting in 2s"
       sleep 2
     done
   ) &
@@ -104,9 +106,12 @@ run_postgres() {
 hold_port_for_boot
 init_postgres
 supervise postgres run_postgres
-wait_for_postgres
+if ! wait_for_postgres; then
+  release_port_holder
+  exit 1
+fi
 release_port_holder
 supervise worker /usr/local/bin/mediafusion-worker
 
-log "starting mediafusion-api on port $STREAM_RS_PORT"
+log "starting mediafusion-api on port $STREAM_RS_PORT (migrations may take a few minutes on first boot)"
 exec /usr/local/bin/mediafusion-api
