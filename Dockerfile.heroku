@@ -1,18 +1,17 @@
-# Heroku deploy — rebuild Rust binaries with repo-root build context.
-FROM rust:1-bookworm AS builder
-WORKDIR /app
-COPY backend/ backend/
-COPY resources/ resources/
-ENV SQLX_OFFLINE=true
-RUN cd backend && cargo build --release --bin mediafusion-api --bin mediafusion-worker
-
+# Heroku eco dyno — single container: PostgreSQL + API + worker + Redis Cloud (external).
 FROM mhdzumair/mediafusion:6.0.0-beta.22
 
 USER root
-COPY --from=builder /app/backend/target/release/mediafusion-api /usr/local/bin/mediafusion-api
-COPY --from=builder /app/backend/target/release/mediafusion-worker /usr/local/bin/mediafusion-worker
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends postgresql postgresql-client && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /data/postgres && \
+    chown postgres:postgres /data/postgres
+
+ENV PGDATA=/data/postgres
+
 COPY deployment/heroku/start.sh /start.sh
 RUN chmod +x /start.sh
-USER mediafusion
 
 CMD ["/start.sh"]
