@@ -1,6 +1,5 @@
 #!/bin/sh
-# All-in-one Heroku entrypoint: local PostgreSQL + MediaFusion API + worker.
-# Self-healing: each service restarts on crash. Redis stays external (30 MB addon).
+# All-in-one Heroku entrypoint — runs as USER postgres (no su; Heroku blocks /etc/passwd writes).
 
 set -u
 
@@ -34,7 +33,6 @@ PG_OPTS="-c shared_buffers=32MB \
 
 log() { echo "[start.sh] $*"; }
 
-# Heroku requires something on $PORT within ~60s while Postgres/migrations run.
 hold_port_for_boot() {
   (
     while true; do
@@ -43,7 +41,7 @@ hold_port_for_boot() {
     done
   ) &
   PORT_HOLDER_PID=$!
-  log "holding port $STREAM_RS_PORT during database startup (pid $PORT_HOLDER_PID)"
+  log "holding port $STREAM_RS_PORT during database startup"
 }
 
 release_port_holder() {
@@ -55,40 +53,27 @@ release_port_holder() {
   fi
 }
 
-ensure_postgres_user() {
-  if id postgres >/dev/null 2>&1; then
-    return 0
-  fi
-  log "creating postgres system user"
-  if ! getent group postgres >/dev/null 2>&1; then
-    groupadd -r postgres
-  fi
-  useradd -r -g postgres -d /var/lib/postgresql -s /bin/bash postgres
-  mkdir -p /var/lib/postgresql "$PGDATA"
-  chown -R postgres:postgres /var/lib/postgresql "$PGDATA"
-}
-
 init_postgres() {
   if [ -s "$PGDATA/PG_VERSION" ]; then
     return 0
   fi
 
   log "initializing PostgreSQL data directory"
-  su postgres -s /bin/bash -c "initdb -D '$PGDATA' --auth-host=trust --auth-local=trust"
+  initdb -D "$PGDATA" --auth-host=trust --auth-local=trust
 
-  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -w start"
-  su postgres -s /bin/bash -c "psql -v ON_ERROR_STOP=1" <<'SQL'
+  pg_ctl -D "$PGDATA" -w start
+  psql -v ON_ERROR_STOP=1 postgres <<'SQL'
 CREATE USER mediafusion WITH PASSWORD 'mediafusion' SUPERUSER;
 CREATE DATABASE mediafusion OWNER mediafusion;
 SQL
-  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast -w stop"
+  pg_ctl -D "$PGDATA" -m fast -w stop
   log "PostgreSQL initialized"
 }
 
 wait_for_postgres() {
   i=0
   while [ "$i" -lt 120 ]; do
-    if su postgres -s /bin/bash -c "pg_isready -q -d mediafusion"; then
+    if pg_isready -q -d mediafusion; then
       log "PostgreSQL is ready"
       return 0
     fi
@@ -113,24 +98,15 @@ supervise() {
 }
 
 run_postgres() {
-  exec su postgres -s /bin/bash -c "exec postgres -D '$PGDATA' $PG_OPTS"
-}
-
-run_worker() {
-  exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-worker'
-}
-
-run_api() {
-  exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-api'
+  exec postgres -D "$PGDATA" $PG_OPTS
 }
 
 hold_port_for_boot
-ensure_postgres_user
 init_postgres
 supervise postgres run_postgres
 wait_for_postgres
 release_port_holder
-supervise worker run_worker
+supervise worker /usr/local/bin/mediafusion-worker
 
 log "starting mediafusion-api on port $STREAM_RS_PORT"
-run_api
+exec /usr/local/bin/mediafusion-api
