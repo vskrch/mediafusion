@@ -5,6 +5,7 @@
 set -u
 
 PGDATA="${PGDATA:-/data/postgres}"
+PORT_HOLDER_PID=""
 export STREAM_RS_PORT="${STREAM_RS_PORT:-${PORT:-8000}}"
 export POSTGRES_URI="${POSTGRES_URI:-postgresql://mediafusion:mediafusion@127.0.0.1:5432/mediafusion}"
 export DB_POOL_SIZE="${DB_POOL_SIZE:-2}"
@@ -33,15 +34,38 @@ PG_OPTS="-c shared_buffers=32MB \
 
 log() { echo "[start.sh] $*"; }
 
+# Heroku requires something on $PORT within ~60s while Postgres/migrations run.
+hold_port_for_boot() {
+  (
+    while true; do
+      printf 'HTTP/1.1 503 Booting\r\nContent-Length: 7\r\nConnection: close\r\n\r\nBooting' \
+        | nc -l -p "$STREAM_RS_PORT" -q 1 2>/dev/null || sleep 0.5
+    done
+  ) &
+  PORT_HOLDER_PID=$!
+  log "holding port $STREAM_RS_PORT during database startup (pid $PORT_HOLDER_PID)"
+}
+
+release_port_holder() {
+  if [ -n "$PORT_HOLDER_PID" ]; then
+    kill "$PORT_HOLDER_PID" 2>/dev/null || true
+    wait "$PORT_HOLDER_PID" 2>/dev/null || true
+    PORT_HOLDER_PID=""
+    sleep 1
+  fi
+}
+
 ensure_postgres_user() {
   if id postgres >/dev/null 2>&1; then
     return 0
   fi
-  log "creating postgres system user (Heroku runtime resets /etc/passwd)"
-  groupadd -r postgres 2>/dev/null || true
+  log "creating postgres system user"
+  if ! getent group postgres >/dev/null 2>&1; then
+    groupadd -r postgres
+  fi
   useradd -r -g postgres -d /var/lib/postgresql -s /bin/bash postgres
-  mkdir -p /var/lib/postgresql
-  chown postgres:postgres /var/lib/postgresql /data/postgres 2>/dev/null || true
+  mkdir -p /var/lib/postgresql "$PGDATA"
+  chown -R postgres:postgres /var/lib/postgresql "$PGDATA"
 }
 
 init_postgres() {
@@ -63,7 +87,7 @@ SQL
 
 wait_for_postgres() {
   i=0
-  while [ "$i" -lt 60 ]; do
+  while [ "$i" -lt 120 ]; do
     if su postgres -s /bin/bash -c "pg_isready -q -d mediafusion"; then
       log "PostgreSQL is ready"
       return 0
@@ -100,12 +124,13 @@ run_api() {
   exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-api'
 }
 
+hold_port_for_boot
 ensure_postgres_user
 init_postgres
 supervise postgres run_postgres
 wait_for_postgres
+release_port_holder
 supervise worker run_worker
 
-# API stays in foreground so Heroku routes traffic to this PID tree.
 log "starting mediafusion-api on port $STREAM_RS_PORT"
 run_api
