@@ -39,21 +39,21 @@ init_postgres() {
   fi
 
   log "initializing PostgreSQL data directory"
-  su postgres -c "initdb -D '$PGDATA' --auth-host=trust --auth-local=trust"
+  su postgres -s /bin/bash -c "initdb -D '$PGDATA' --auth-host=trust --auth-local=trust"
 
-  su postgres -c "pg_ctl -D '$PGDATA' -w start"
-  su postgres -c "psql -v ON_ERROR_STOP=1" <<'SQL'
+  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -w start"
+  su postgres -s /bin/bash -c "psql -v ON_ERROR_STOP=1" <<'SQL'
 CREATE USER mediafusion WITH PASSWORD 'mediafusion' SUPERUSER;
 CREATE DATABASE mediafusion OWNER mediafusion;
 SQL
-  su postgres -c "pg_ctl -D '$PGDATA' -m fast -w stop"
+  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast -w stop"
   log "PostgreSQL initialized"
 }
 
 wait_for_postgres() {
   i=0
   while [ "$i" -lt 60 ]; do
-    if su postgres -c "pg_isready -q -d mediafusion"; then
+    if su postgres -s /bin/bash -c "pg_isready -q -d mediafusion"; then
       log "PostgreSQL is ready"
       return 0
     fi
@@ -78,15 +78,15 @@ supervise() {
 }
 
 run_postgres() {
-  exec su postgres -c "postgres -D '$PGDATA' $PG_OPTS"
+  exec su postgres -s /bin/bash -c "exec postgres -D '$PGDATA' $PG_OPTS"
 }
 
 run_worker() {
-  exec su mediafusion -s /bin/sh -c 'exec /usr/local/bin/mediafusion-worker'
+  exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-worker'
 }
 
 run_api() {
-  exec su mediafusion -s /bin/sh -c 'exec /usr/local/bin/mediafusion-api'
+  exec su mediafusion -s /bin/bash -c 'exec /usr/local/bin/mediafusion-api'
 }
 
 init_postgres
