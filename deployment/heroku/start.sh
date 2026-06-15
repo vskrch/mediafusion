@@ -33,6 +33,17 @@ PG_OPTS="-c shared_buffers=32MB \
 
 log() { echo "[start.sh] $*"; }
 
+ensure_postgres_user() {
+  if id postgres >/dev/null 2>&1; then
+    return 0
+  fi
+  log "creating postgres system user (Heroku runtime resets /etc/passwd)"
+  groupadd -r postgres 2>/dev/null || true
+  useradd -r -g postgres -d /var/lib/postgresql -s /bin/bash postgres
+  mkdir -p /var/lib/postgresql
+  chown postgres:postgres /var/lib/postgresql /data/postgres 2>/dev/null || true
+}
+
 init_postgres() {
   if [ -s "$PGDATA/PG_VERSION" ]; then
     return 0
